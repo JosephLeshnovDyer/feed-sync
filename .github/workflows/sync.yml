@@ -1,0 +1,52 @@
+name: sync
+
+on:
+  schedule:
+    - cron: "20 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      KEY: ${{ secrets.FEED_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Unpack
+        run: |
+          test -n "$KEY" || { echo "FEED_KEY secret is missing"; exit 1; }
+          mkdir -p work
+          dec() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -pass env:KEY -in "$1" -out "$2"; }
+          dec data/app.enc work/app.tgz && tar -xzf work/app.tgz -C work
+          dec data/config.enc work/config.json
+          if [ -f data/state.enc ]; then dec data/state.enc work/seen.json; fi
+          if [ -f data/feed.enc ]; then dec data/feed.enc work/feed.json; fi
+      - name: Install
+        working-directory: work/app
+        run: |
+          npm ci --silent --no-audit --no-fund
+          npx playwright install --with-deps chromium > /dev/null
+      - name: Run
+        run: WORK_DIR="$PWD/work" node work/app/src/fetch.mjs
+      - name: Pack
+        run: |
+          enc() { openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt -pass env:KEY -in "$1" -out "$2"; }
+          enc work/seen.json data/state.enc
+          enc work/feed.json data/feed.enc
+          rm -rf work
+          git config user.name "sync-bot"
+          git config user.email "sync-bot@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -q -m "sync $(date -u +%F)"
+          git push -q
