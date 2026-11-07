@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      KEY: ${{ secrets.FEED_KEY }}
+      KEY: ${{ secrets.REPO_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,7 +25,7 @@ jobs:
           node-version: 20
       - name: Unpack
         run: |
-          test -n "$KEY" || { echo "FEED_KEY secret is missing"; exit 1; }
+          test -n "$KEY" || { echo "REPO_SECRET secret is missing"; exit 1; }
           mkdir -p work
           dec() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -pass env:KEY -in "$1" -out "$2"; }
           dec data/app.enc work/app.tgz && tar -xzf work/app.tgz -C work
